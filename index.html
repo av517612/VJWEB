@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>TACHYON-PI WebGL</title>
+<style>
+:root{--fg:#1b1a17;--bg:#f4f1ea;--panel:rgba(244,241,234,.84);--line:rgba(27,26,23,.3);--acc:#d6336c;
+  box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--fg:#ece8f2;--bg:#0d0c10;--panel:rgba(13,12,16,.8);--line:rgba(236,232,242,.3);--acc:#ff5fa8}}
+:root[data-theme="dark"]{--fg:#ece8f2;--bg:#0d0c10;--panel:rgba(13,12,16,.8);--line:rgba(236,232,242,.3);--acc:#ff5fa8}
+html{scroll-padding-top:env(safe-area-inset-top,0px);height:100%}
+body{margin:0;height:100%;overflow:hidden;background:var(--bg);color:var(--fg);font:12px/1.3 ui-monospace,Menlo,Consolas,monospace}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block;image-rendering:auto}
+#top{position:fixed;top:env(safe-area-inset-top,0px);right:0;padding:8px;display:flex;gap:6px}
+button{font:inherit;color:var(--fg);background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:6px 10px;cursor:pointer;backdrop-filter:blur(6px)}
+button[aria-pressed="true"]{background:var(--acc);color:#fff;border-color:var(--acc)}
+#panel{position:fixed;left:0;right:0;bottom:0;padding:10px 12px calc(10px + env(safe-area-inset-bottom,0px));background:var(--panel);border-top:1px solid var(--line);backdrop-filter:blur(8px)}
+#panel.off{display:none}
+#sws{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+#knobs{display:grid;grid-template-columns:repeat(8,1fr);gap:8px 4px;max-width:900px;margin:0 auto}
+@media (max-width:700px){#knobs{grid-template-columns:repeat(4,1fr)}}
+.k{text-align:center;user-select:none}
+.dial{width:42px;height:42px;border-radius:50%;border:2px solid var(--fg);margin:0 auto 3px;position:relative;touch-action:none;cursor:ns-resize;transform:rotate(var(--a,0deg))}
+.dial i{position:absolute;left:50%;top:3px;width:3px;height:13px;margin-left:-1.5px;background:var(--acc);border-radius:2px}
+.k label{display:block;font-weight:700}.k output{opacity:.7}
+.k.sel label{color:var(--acc)}
+#hint{margin-top:8px;opacity:.65;text-align:center}
+#msg{position:fixed;inset:0;display:none;place-items:center;padding:24px;text-align:center}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="msg"></div>
+<div id="top"><button id="bp">Panel</button><button id="bf">Fullscreen</button></div>
+<div id="panel">
+  <div id="sws">
+    <button data-s="0" aria-pressed="false">INVERT</button>
+    <button data-s="1" aria-pressed="false">MIRROR</button>
+    <button data-s="2" aria-pressed="false">FREEZE</button>
+    <button data-s="3" aria-pressed="false">FLUSH (hold)</button>
+    <button id="rnd">RANDOM</button>
+  </div>
+  <div id="knobs"></div>
+  <div id="hint">Drag knobs up or down · wheel to nudge · double-click resets · keys: arrows, i m f, hold x, r, h · contains flashing imagery</div>
+</div>
+<script>
+const NAMES=["OSC1","OSC2","OSC3","SHAPE","ROTATE","MIX","GRID","CRUSH","HUE","COLOR","FEEDBK","ZOOM","SPIN","FB-HUE","TEAR","SNOW"];
+const DEF=[.30,.22,.18,.25,.10,.35,0,0,.60,.70,.80,.55,.52,.55,.15,.05];
+const v=[...DEF],sm=[...DEF],sw=[0,0,0,0];let sel=0;
+
+/* ---------- panel ---------- */
+const $=s=>document.querySelector(s),dials=[],outs=[],cells=[];
+function set(i,x){v[i]=Math.min(1,Math.max(0,x));dials[i].style.setProperty('--a',(v[i]*270-135)+'deg');outs[i].textContent=v[i].toFixed(2)}
+function mark(){cells.forEach((c,i)=>c.classList.toggle('sel',i===sel))}
+NAMES.forEach((n,i)=>{
+  const c=document.createElement('div');c.className='k';
+  c.innerHTML='<div class="dial"><i></i></div><label>'+n+'</label><output></output>';
+  $('#knobs').appendChild(c);cells.push(c);
+  const d=c.firstChild;dials.push(d);outs.push(c.lastChild);
+  let drag=null;
+  d.addEventListener('pointerdown',e=>{drag={y:e.clientY,v:v[i]};sel=i;mark();d.setPointerCapture(e.pointerId)});
+  d.addEventListener('pointermove',e=>{if(drag)set(i,drag.v+(drag.y-e.clientY)/160)});
+  ['pointerup','pointercancel'].forEach(t=>d.addEventListener(t,()=>drag=null));
+  d.addEventListener('dblclick',()=>set(i,DEF[i]));
+  d.addEventListener('wheel',e=>{e.preventDefault();set(i,v[i]-Math.sign(e.deltaY)*.02)},{passive:false});
+  set(i,v[i]);
+});mark();
+const sbtn=[...document.querySelectorAll('[data-s]')];
+function setSw(j,on){sw[j]=on?1:0;sbtn[j].setAttribute('aria-pressed',on?'true':'false')}
+sbtn.forEach((b,j)=>{
+  if(j<3)b.addEventListener('click',()=>setSw(j,!sw[j]));
+  else{b.addEventListener('pointerdown',()=>setSw(3,1));['pointerup','pointerleave','pointercancel'].forEach(t=>b.addEventListener(t,()=>setSw(3,0)))}
+});
+const rand=()=>v.forEach((_,i)=>set(i,Math.random()));
+$('#rnd').onclick=rand;
+const togPanel=()=>$('#panel').classList.toggle('off');
+$('#bp').onclick=togPanel;
+$('#bf').onclick=()=>document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen?.();
+addEventListener('keydown',e=>{const k=e.key;
+  if(k==='ArrowRight')sel=(sel+1)%16;else if(k==='ArrowLeft')sel=(sel+15)%16;
+  else if(k==='ArrowUp')set(sel,v[sel]+.02);else if(k==='ArrowDown')set(sel,v[sel]-.02);
+  else if(k==='i')setSw(0,!sw[0]);else if(k==='m')setSw(1,!sw[1]);else if(k==='f')setSw(2,!sw[2]);
+  else if(k==='x')setSw(3,1);else if(k==='r')rand();else if(k==='h')togPanel();else return;
+  e.preventDefault();mark()});
+addEventListener('keyup',e=>{if(e.key==='x')setSw(3,0)});
+
+/* ---------- shaders (same GLSL as the Raspberry Pi build) ---------- */
+const VS=`#version 300 es
+void main(){vec2 p=vec2((gl_VertexID<<1)&2,gl_VertexID&2);gl_Position=vec4(p*2.-1.,0.,1.);}`;
+const HEAD=`#version 300 es
+precision highp float;
+uniform vec2 res;uniform float t;uniform float k[16];uniform vec4 sw;uniform sampler2D fb;
+out vec4 o;
+float h(vec2 p){p=fract(p*vec2(123.34,456.21));p+=dot(p,p+45.32);return fract(p.x*p.y);}
+mat2 R(float a){float c=cos(a),s=sin(a);return mat2(c,-s,s,c);}
+float tear(float y){
+  float b=floor(y*mix(8.,200.,h(vec2(floor(t*7.),3.))));
+  float on=step(.55,h(vec2(b,floor(t*9.)+7.)));
+  return (h(vec2(b,floor(t*13.)))-.5)*k[14]*k[14]*.5*on;}
+`;
+const SIM=HEAD+`
+vec3 hsv(vec3 c){vec4 K=vec4(1.,2./3.,1./3.,3.);vec3 p=abs(fract(c.xxx+K.xyz)*6.-K.www);return c.z*mix(K.xxx,clamp(p-K.xxx,0.,1.),c.y);}
+vec3 hs(vec3 c,float a){vec3 ax=vec3(.57735);return c*cos(a)+cross(ax,c)*sin(a)+ax*dot(ax,c)*(1.-cos(a));}
+float wave(float x,float s){
+  float w1=sin(6.2831853*x)*.5+.5,w2=abs(fract(x)*2.-1.),w3=fract(x),w4=step(.5,fract(x));
+  float a=s*3.;
+  return a<1.?mix(w1,w2,a):a<2.?mix(w2,w3,a-1.):mix(w3,w4,a-2.);}
+void main(){
+  vec2 asp=vec2(res.x/res.y,1.);
+  vec2 uv=gl_FragCoord.xy/res;
+  vec2 p=(uv-.5)*asp;
+  p.x+=tear(uv.y)*1.5;
+  if(sw.y>.5)p.x=abs(p.x);
+  vec2 q=p;float ln=0.;float g=k[6];
+  if(g>.02){float n=mix(120.,5.,g);vec2 f=fract(p*n);q=(floor(p*n)+.5)/n;ln=step(.92,max(f.x,f.y))*g;}
+  vec2 r=R(k[4]*6.2832+t*.05)*q;
+  float s=k[3],m=k[5];
+  float a=wave(r.x*mix(.5,28.,k[0]*k[0])+t*.07,s);
+  float b=wave(r.y*mix(.5,28.,k[1]*k[1])-t*.11+a*m*3.,s);
+  float c=wave(length(q)*mix(.5,28.,k[2]*k[2])-t*.05+b*m*2.,s);
+  float d=abs(abs(a-b)-c);
+  float L=m<.5?mix((a+b+c)/3.,d,m*2.):mix(d,a*b*c*2.,m*2.-1.);
+  float lv=mix(64.,2.,k[7]*k[7]);
+  L=mix(L,floor(L*lv+.5)/lv,smoothstep(.02,.12,k[7]));
+  L=max(L,ln*.8);
+  vec3 col=hsv(vec3(k[8]+L*k[9]*1.5,min(1.,k[9]*4.),L));
+  vec2 dd=R((k[12]-.5)*.2)*(p*(1.-(k[11]-.5)*.1));
+  vec3 pv=hs(texture(fb,dd/asp+.5).rgb,(k[13]-.5)*.2);
+  pv=clamp((pv-.5)*(1.+.05*k[10])+.5,0.,1.);
+  o=vec4(mix(col,pv,k[10]*.97),1.);
+}`;
+const OUT=HEAD+`
+void main(){
+  vec2 uv=gl_FragCoord.xy/res;
+  vec2 u=vec2(uv.x+tear(uv.y),uv.y);
+  float sp=k[14]*k[14]*.01;
+  vec3 c=vec3(texture(fb,u+vec2(sp,0.)).r,texture(fb,u).g,texture(fb,u-vec2(sp,0.)).b);
+  float n=h(gl_FragCoord.xy+vec2(fract(t)*97.,fract(t*1.3)*61.));
+  float sn=k[15]*k[15];
+  c+=(n-.5)*sn*.8;
+  c=mix(c,vec3(n),sn*.5*step(.7,h(vec2(floor(uv.y*60.),floor(t*20.)))));
+  c*=.92+.08*sin(gl_FragCoord.y*3.14159);
+  if(sw.x>.5)c=1.-c;
+  o=vec4(clamp(c,0.,1.),1.);
+}`;
+
+/* ---------- WebGL2 plumbing ---------- */
+const cv=$('#c'),gl=cv.getContext('webgl2',{antialias:false,alpha:false});
+function fail(s){const m=$('#msg');m.style.display='grid';m.textContent=s}
+if(!gl)fail('This browser does not support WebGL2.');
+else{
+  const prog=fs=>{
+    const sh=(k,s)=>{const o=gl.createShader(k);gl.shaderSource(o,s);gl.compileShader(o);
+      if(!gl.getShaderParameter(o,gl.COMPILE_STATUS))throw gl.getShaderInfoLog(o);return o};
+    const p=gl.createProgram();
+    gl.attachShader(p,sh(gl.VERTEX_SHADER,VS));gl.attachShader(p,sh(gl.FRAGMENT_SHADER,fs));
+    gl.linkProgram(p);return p};
+  const target=(w,h)=>{
+    const t=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,t);
+    gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA8,w,h,0,gl.RGBA,gl.UNSIGNED_BYTE,null);
+    [[gl.TEXTURE_MIN_FILTER,gl.LINEAR],[gl.TEXTURE_MAG_FILTER,gl.LINEAR],[gl.TEXTURE_WRAP_S,gl.MIRRORED_REPEAT],[gl.TEXTURE_WRAP_T,gl.MIRRORED_REPEAT]]
+      .forEach(([a,b])=>gl.texParameteri(gl.TEXTURE_2D,a,b));
+    const f=gl.createFramebuffer();gl.bindFramebuffer(gl.FRAMEBUFFER,f);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,t,0);
+    gl.clearColor(0,0,0,1);gl.clear(gl.COLOR_BUFFER_BIT);return[t,f]};
+  let sim,out;
+  try{sim=prog(SIM);out=prog(OUT)}catch(e){fail('Shader error: '+e)}
+  let W,H,SW,SH,T,F,cur=0;
+  const size=()=>{
+    const d=Math.min(devicePixelRatio||1,2);
+    W=cv.width=Math.round(innerWidth*d);H=cv.height=Math.round(innerHeight*d);
+    SW=Math.max(64,W>>1);SH=Math.max(64,H>>1);
+    if(T){T.forEach(x=>gl.deleteTexture(x));F.forEach(x=>gl.deleteFramebuffer(x))}
+    const a=target(SW,SH),b=target(SW,SH);T=[a[0],b[0]];F=[a[1],b[1]];cur=0};
+  size();addEventListener('resize',size);
+  const draw=(p,src,w,h,t)=>{
+    gl.useProgram(p);gl.viewport(0,0,w,h);
+    gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,src);
+    const L=n=>gl.getUniformLocation(p,n);
+    gl.uniform1i(L('fb'),0);gl.uniform2f(L('res'),w,h);gl.uniform1f(L('t'),t);
+    gl.uniform1fv(L('k'),new Float32Array(sm));gl.uniform4f(L('sw'),sw[0],sw[1],sw[2],sw[3]);
+    gl.drawArrays(gl.TRIANGLES,0,3)};
+  const frame=ms=>{
+    const t=ms/1000;
+    for(let i=0;i<16;i++)sm[i]+=(v[i]-sm[i])*.3;
+    const nx=1-cur;
+    if(sw[3]||!sw[2]){   // FLUSH clears the loop, FREEZE holds it
+      gl.bindFramebuffer(gl.FRAMEBUFFER,F[nx]);
+      if(sw[3])gl.clear(gl.COLOR_BUFFER_BIT);else draw(sim,T[cur],SW,SH,t);
+      cur=nx}
+    gl.bindFramebuffer(gl.FRAMEBUFFER,null);draw(out,T[cur],W,H,t);
+    requestAnimationFrame(frame)};
+  if(sim&&out)requestAnimationFrame(frame);
+  cv.addEventListener('click',togPanel);
+}
+</script>
+</body>
+</html>
